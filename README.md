@@ -14,7 +14,7 @@ echo <PAT with read:packages> | docker login ghcr.io -u slackerchris --password-
 docker compose pull && docker compose up -d
 ```
 
-The port is bound to `127.0.0.1` so it's only reachable through the reverse proxy below (or from the host itself). If you're running on a trusted LAN without a proxy, change `127.0.0.1:8080:8080` to `8080:8080` in `docker-compose.yml` and open `http://<host>:8080`. The app reads `X-Forwarded-Proto` to mark the login cookie `Secure`.
+Open `http://<host>:8080`. Change the left side of `8080:8080` in `docker-compose.yml` if the port is taken. For a proxy-only setup, bind it to `127.0.0.1:8080:8080` instead. Put it behind your reverse proxy for HTTPS (it reads `X-Forwarded-Proto` to mark the login cookie Secure).
 
 Updates: `docker compose pull && docker compose up -d`. The `data/` folder is untouched.
 

@@ -141,7 +141,12 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.
 
 // ---- server ----
 const server = http.createServer(async (req, res) => {
+  const started = process.hrtime.bigint();
   const url = new URL(req.url, 'http://x');
+  res.on('finish', () => {
+    const ms = Number(process.hrtime.bigint() - started) / 1e6;
+    console.log(`${req.socket.remoteAddress || '-'} ${req.method} ${url.pathname} ${res.statusCode} ${ms.toFixed(1)}ms`);
+  });
   const p = url.pathname;
   try {
     if (p === '/healthz') return send(res, 200, 'ok');

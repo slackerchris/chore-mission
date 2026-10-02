@@ -5,6 +5,11 @@ services:
     container_name: chore-mission
     restart: unless-stopped
     init: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -14,7 +19,7 @@ services:
       - SETUID
       - SETGID
     ports:
-      - "127.0.0.1:8080:8080"
+      - "8080:8080"
     volumes:
       - ./data:/data
     environment:
