@@ -4,10 +4,19 @@ services:
     # build: .   # uncomment to build locally instead of pulling
     container_name: chore-mission
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./data:/data
     environment:
-      - TZ=America/New_York
+      - TZ=${TZ:-America/New_York}
       - FAMILY_PASSWORD=${FAMILY_PASSWORD:?set FAMILY_PASSWORD in .env}
