@@ -20,6 +20,37 @@ Updates: `docker compose pull && docker compose up -d`. The `data/` folder is un
 
 First run seeds your current chores, prizes and goals from `seed.json`. History starts empty. The seed is only used when the database is empty.
 
+The container starts as root, makes the mounted `data/` folder writable by the app's `node` user, then drops privileges — so the first `docker compose up` works even though Docker creates `./data` as root.
+
+## HTTPS
+
+Put the app behind a reverse proxy that terminates TLS. Otherwise the family password travels in cleartext. The app reads `X-Forwarded-Proto` to mark the login cookie `Secure`.
+
+Caddy:
+
+```caddy
+chores.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+nginx:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name chores.example.com;
+    ssl_certificate     /etc/letsencrypt/live/chores.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/chores.example.com/privkey.pem;
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
 ## Family password
 
 `FAMILY_PASSWORD` gates the whole site. Each device logs in once and stays logged in for a year (HttpOnly cookie). Changing the password logs every device out. 10 wrong tries locks the login for 5 minutes. Leave it unset only on a trusted LAN.
@@ -34,6 +65,8 @@ First run seeds your current chores, prizes and goals from `seed.json`. History 
 - Chore check-offs and spins need only the family password, not the PIN.
 - Anything in Setup (chores, prizes, goals, name) requires the PIN. The server checks it with scrypt and hands out a 30-minute token, which the page throws away when you leave the tab or the screen turns off.
 - 5 wrong PINs locks the PIN check for a minute.
+
+Lockouts and setup tokens live only in the running container, so restarting it clears them.
 
 Forgot the PIN:
 

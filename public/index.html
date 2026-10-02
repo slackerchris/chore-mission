@@ -47,7 +47,7 @@
     onSnapshot:(fn,onErr)=>{const s={col,id,fn};docSubs.add(s);load(col).then(()=>fn(snapDoc(id,cache[col].get(id)??null))).catch(e=>onErr&&onErr(err('unavailable',String(e))));return()=>docSubs.delete(s)}
   }}
   function colRef(col,limit){return{
-    path:col,doc:id=>docRef(col+'/'+id),limit:n=>colRef(col,n),where:()=>colRef(col,limit),orderBy:()=>colRef(col,limit),
+    path:col,doc:id=>docRef(col+'/'+id),limit:n=>colRef(col,n),
     get:async()=>{await load(col);return snapCol(col,limit)},
     onSnapshot:(fn,onErr)=>{const s={col,fn,limit};colSubs.add(s);load(col).then(()=>fn(snapCol(col,limit))).catch(e=>onErr&&onErr(err('unavailable',String(e))));return()=>colSubs.delete(s)}
   }}
@@ -57,8 +57,7 @@
 </script>
 </head><body>
 <title>Chore Chart</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Nunito:wght@600;700;800&family=JetBrains+Mono:wght@600&display=swap">
+<link rel="stylesheet" href="fonts.css">
 <style>
 /* Layout: space mission. Rocket-to-reward track on top, one big "next up" chore card, chore bubbles row, week strip, parent edit panel. Single deliberate night-sky theme. */
 :root{
@@ -375,7 +374,7 @@ let spinsAll={}, mSel=null;
 let days={};
 let spin=null, rotation=0, spinning=false, wheelSig='';
 let tab=(['today','stats','setup'].includes(location.hash.slice(1))?location.hash.slice(1):'today');
-let setupOpen=false, canSetup=true, pinStage=null;
+let setupOpen=false, pinStage=null;
 let db=null, editing=false, newDays=[0,1,2,3,4,5,6], newIcon='⭐', sound=true;
 let timer=null, timerEnd=0;
 
@@ -385,8 +384,7 @@ sound=local.get('chores.sound')!==false;
 function weekStart(d){const s=new Date(d);s.setDate(s.getDate()-s.getDay());return s}
 function choresFor(d){return config.chores.filter(c=>!c.days||c.days.includes(d.getDay()))}
 function doneFor(k){return (days[k]&&days[k].done)||{}}
-function liveStars(d){const done=doneFor(key(d));return choresFor(d).reduce((s,c)=>s+(done[c.id]?(c.pts||1):0),0)}
-function starsFor(d){const r=days[key(d)];if(r&&typeof r.stars==='number'&&key(d)!==key(sel))return r.stars;return liveStars(d)}
+function starsFor(d){const done=doneFor(key(d));return choresFor(d).reduce((s,c)=>s+(done[c.id]?(c.pts||1):0),0)}
 function weekStars(){const ws=weekStart(today());let t=0;for(let i=0;i<7;i++){const d=new Date(ws);d.setDate(ws.getDate()+i);t+=starsFor(d)}return t}
 
 function render(){
@@ -454,9 +452,8 @@ function render(){
     el.innerHTML='<b>'+DOW[i]+'</b><span>'+st+'</span>';el.setAttribute('aria-label',DOW[i]+', '+st+' stars');
     el.onclick=()=>{sel=d;cur=null;render()};wk.append(el)}
 
-  if(tab==='setup'&&!canSetup)tab='today';
   editing=tab==='setup'&&setupOpen;
-  $('setupTab').hidden=!canSetup;$('setupTab').querySelector('.ti').textContent=setupOpen?'⚙️':'🔒';
+  $('setupTab').querySelector('.ti').textContent=setupOpen?'⚙️':'🔒';
   $('lockPane').hidden=editing;$('editPanel').hidden=!editing;
   if(tab==='setup'&&!setupOpen){const has=!!config.pinHash;
     $('lockTitle').textContent=has?'Grown-ups only':(pinStage?'Confirm your PIN':'Create a parent PIN');
@@ -510,9 +507,8 @@ function renderEdit(){
 async function saveConfig(c){config=c;render();if(db){try{await db.doc('setup/main').set(c)}catch(e){readOnly(e)}}else local.set('chores.config',c)}
 async function toggle(id,val){
   const k=key(sel), done={...doneFor(k)};if(val)done[id]=true;else delete done[id];
-  days={...days,[k]:{date:k,done}};const stars=liveStars(sel),total=choresFor(sel).length,cnt=choresFor(sel).filter(c=>done[c.id]).length;
-  days[k]={date:k,done,stars,total,cnt};render();
-  if(db){try{await db.doc('days/'+k).set({date:k,done,stars,total,cnt})}catch(e){readOnly(e)}}else local.set('chores.days',days);
+  days={...days,[k]:{date:k,done}};render();
+  if(db){try{await db.doc('days/'+k).set({date:k,done})}catch(e){readOnly(e)}}else local.set('chores.days',days);
 }
 function readOnly(e){$('note').textContent=e&&e.code==='invalid_argument'?'Setup is locked. Open Setup and enter the PIN again.':'Could not save. Check that the server is reachable.'}
 
@@ -707,9 +703,8 @@ $('resetSpin').onclick=async()=>{const wk=weekKey();spin=null;wState='idle';winI
   if(db){try{await db.doc('spins/'+wk).delete()}catch(e){readOnly(e)}}else local.set('chores.spin',null)};
 
 // mission log
-function dayInfo(d){const k=key(d),r=days[k];const sched=choresFor(d);
-  if(r&&typeof r.total==='number'&&k!==key(today()))return{stars:r.stars||0,total:r.total,cnt:r.cnt||0};
-  const done=doneFor(k);return{stars:starsFor(d),total:sched.length,cnt:sched.filter(c=>done[c.id]).length}}
+function dayInfo(d){const k=key(d);const sched=choresFor(d);const done=doneFor(k);
+  return{stars:starsFor(d),total:sched.length,cnt:sched.filter(c=>done[c.id]).length}}
 function isFull(i){return i.total>0&&i.cnt>=i.total}
 function streaks(){
   const ks=Object.keys(days).sort();const t=today();
@@ -777,7 +772,6 @@ $('mGoalIn').addEventListener('input',e=>{const v=Math.max(1,Math.min(2000,parse
 $('mReward').addEventListener('input',e=>{const v=e.target.value;debounce(()=>saveConfig({...config,monthReward:v}))});
 
 // parent PIN
-async function hashPin(p){const t='chore-mission:'+p;try{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('')}catch(e){let h=5381;for(const c of t)h=((h<<5)+h+c.charCodeAt(0))|0;return 'h'+h}}
 async function pinSubmit(){
   const v=$('pinIn').value.trim(),msg=$('pinMsg');msg.textContent='';
   if(!/^\d{4,8}$/.test(v)){msg.textContent='Use 4 to 8 digits.';return}
@@ -821,14 +815,13 @@ config={...config,...(local.get('chores.config')||{})};days=local.get('chores.da
 render();
 if(document.fonts)document.fonts.ready.then(()=>{wheelSig='';render()});
 (async()=>{
-  try{const u=await window.claude?.use?.('user');if(u&&u.canEdit&&!(await u.canEdit())){canSetup=false;setupOpen=false;render()}}catch(e){}
   try{db=await window.claude?.use?.('db')}catch(e){db=null}
   if(!db){$('note').textContent='Saving on this device only.';return}
   db.doc('setup/main').onSnapshot(s=>{if(s.exists){const d=s.data();config={pinHash:d.pinHash||'',name:d.name||'',goal:d.goal||15,monthGoal:d.monthGoal||60,monthReward:d.monthReward||'',prizes:d.prizes||[],chores:d.chores||[]};render()}},()=>{});
   db.collection('spins').onSnapshot(s=>{const m={};s.docs.forEach(d=>{m[d.id]=d.data()});spinsAll=m;if(!spinning){spin=m[weekKey()]||null}render()},()=>{});
-  const from=new Date(today());from.setDate(from.getDate()-60);
-  db.collection('days').limit(1000).onSnapshot(s=>{const m={};s.docs.forEach(d=>{m[d.id]=d.data()});days=m;render()},()=>{});
+  db.collection('days').onSnapshot(s=>{const m={};s.docs.forEach(d=>{m[d.id]=d.data()});days=m;render()},()=>{});
 })();
+if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 </script>
 
 </body></html>

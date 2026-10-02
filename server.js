@@ -57,6 +57,7 @@ if (q.count.get().n === 0 && fs.existsSync(seedFile)) {
 
 // ---- parent PIN (scrypt) + short-lived tokens ----
 const tokens = new Map();
+setInterval(() => { const now = Date.now(); for (const [t, exp] of tokens) if (exp < now) tokens.delete(t); }, 10 * 60 * 1000).unref();
 function hasPin() { return !!q.getMeta.get('pin'); }
 function setPin(pin) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -136,7 +137,7 @@ function deepMerge(a, b) {
   }
   return out;
 }
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2' };
 
 // ---- server ----
 const server = http.createServer(async (req, res) => {
@@ -214,8 +215,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET') {
       const file = p === '/' ? 'index.html' : p.slice(1);
       const full = path.join(PUBLIC_DIR, path.normalize(file));
-      if (!full.startsWith(PUBLIC_DIR) || !fs.existsSync(full) || fs.statSync(full).isDirectory()) return send(res, 404, 'not found');
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(full)] || 'application/octet-stream', 'Cache-Control': file === 'index.html' ? 'no-cache' : 'max-age=86400' });
+      if (!full.startsWith(PUBLIC_DIR + path.sep) || !fs.existsSync(full) || fs.statSync(full).isDirectory()) return send(res, 404, 'not found');
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(full)] || 'application/octet-stream', 'Cache-Control': (file === 'index.html' || file === 'sw.js') ? 'no-cache' : 'max-age=86400' });
       return fs.createReadStream(full).pipe(res);
     }
     send(res, 404, 'not found');
