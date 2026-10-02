@@ -362,7 +362,7 @@ input[type=text],input[type=number]{font:inherit;color:var(--fg);background:var(
 </nav>
 <script>
 const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-const ICONS=['🛏️','🐶','🐱','🍽️','🗑️','🧸','👕','🦷','🎒','📚','🧹','🌱','🚿','🧺','👟','⭐'];
+const ICONS=['🛏️','🐶','🐱','🐈','🍽️','🗑️','🧸','👕','🦷','🪥','🎒','📚','🧹','🌱','🚿','🧺','🧼','🧽','🪣','👟','💇','🪮','💩','⭐'];
 const CHEERS=['Awesome!','Boom!','Nailed it!','Rocket fuel!','Way to go!','Super speed!','Legend!','Zap! Done!','High five!','Unstoppable!'];
 const $=id=>document.getElementById(id);
 const key=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -565,7 +565,7 @@ addEventListener('resize',()=>{sizeC();drawStars();render()});
 sizeC();drawStars();
 
 // prize wheel (game-show style)
-const PICONS=['🎁','🍦','🎬','🍕','🎮','🧸','💵','🌙','🍩','🏆','🎨','🛝','🍿','📱','🚲','👑'];
+const PICONS=['🎁','🍦','🎬','🍕','🎮','🧸','💵','🌙','🍩','🏆','🎨','🛝','🍿','📱','🚲','👑','🎟️','🛍️','🍔','🚗'];
 let newPrizeIcon='🎁';
 const P=x=>typeof x==='string'?{name:x,icon:'🎁'}:{name:x.name||'',icon:x.icon||'🎁'};
 const FILL=[{label:'BUMMER',icon:'😵‍💫'},{label:'YIKES',icon:'😬'},{label:'OOPS',icon:'🙃'},{label:'SO CLOSE',icon:'🫣'},{label:'NOPE',icon:'🥴'},{label:'UH OH',icon:'😝'}];
