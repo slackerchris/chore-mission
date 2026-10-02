@@ -1,0 +1,103 @@
+{
+ "setup": {
+  "main": {
+   "chores": [
+    {
+     "days": [
+      0,
+      1,
+      2,
+      3,
+      4
+     ],
+     "icon": "🦷",
+     "id": "cmuq9azdl",
+     "name": "Wear Mouth Guard",
+     "pts": 2
+    },
+    {
+     "days": [
+      0,
+      1,
+      2,
+      3,
+      4
+     ],
+     "icon": "🦷",
+     "id": "cmuq9an6r",
+     "name": "Brush Teeth (Morning)",
+     "pts": 1
+    },
+    {
+     "days": [
+      1,
+      2,
+      3,
+      4,
+      5
+     ],
+     "icon": "⭐",
+     "id": "cmuq9cdhv",
+     "name": "Behavior score over 30",
+     "pts": 1
+    },
+    {
+     "days": [
+      0,
+      1,
+      2,
+      3,
+      4
+     ],
+     "icon": "🐱",
+     "id": "cmuq99v7n",
+     "name": "Feed Ash",
+     "pts": 1
+    },
+    {
+     "days": [
+      0,
+      1,
+      2,
+      3,
+      4
+     ],
+     "icon": "🦷",
+     "id": "cmuq9bep1",
+     "name": "Brush Teeth (Bed Time)",
+     "pts": 1
+    }
+   ],
+   "goal": 15,
+   "monthGoal": 60,
+   "monthReward": "",
+   "name": "Gabriel",
+   "prizes": [
+    {
+     "icon": "🎬",
+     "name": "Pick the movie"
+    },
+    {
+     "icon": "🍦",
+     "name": "Ice cream trip"
+    },
+    {
+     "icon": "🌙",
+     "name": "Stay up 30 min"
+    },
+    {
+     "icon": "🍕",
+     "name": "Pick dinner"
+    },
+    {
+     "icon": "💵",
+     "name": "$5 toy store"
+    },
+    {
+     "icon": "🎮",
+     "name": "Game night pick"
+    }
+   ]
+  }
+ }
+}
