@@ -1,6 +1,6 @@
 // Minimal app-shell service worker. Data still comes from the server,
 // so offline use is limited to the static shell (page, fonts, icons).
-const CACHE = 'chore-mission-v1';
+const CACHE = 'chore-mission-__VERSION__';
 const PRECACHE = [
   '/',
   '/fonts.css',

@@ -1,32 +1,73 @@
-# Chore Mission
+# 🚀 Chore Mission
 
-Self-hosted chore chart for Gabriel. One Node container, SQLite on a volume, no npm dependencies.
+A tiny self-hosted chore tracker that turns chores into a game: kids earn stars for doing chores, then spend them on a prize wheel. One Node container, SQLite on a volume, zero npm dependencies.
 
-## Deploy (VPS, pulls the prebuilt image)
+Built for Gabriel, but works for any kid with a tablet.
+
+## Features
+
+- **Stars** — every chore is worth stars; check-offs sync live across devices.
+- **Prize wheel** — earn enough stars, then spin to win a prize.
+- **Free spins** — parents can grant a free spin from Setup.
+- **Prize cooldown** — a won prize leaves the wheel until Sunday (or 7 days, whichever is sooner); its slot becomes a FREE SPIN.
+- **Stats** — all-time stars, streaks, monthly hit rate, and a calendar heatmap.
+- **Parent PIN** — Setup is locked behind a 4–8 digit PIN.
+- **Family password** — optional password gating the whole site.
+- **PWA** — add to the home screen for a full-screen app with an offline shell.
+- **Version tracking** — version shown in the app and at `/version`.
+
+## How it works
+
+1. Grown-ups add chores (each worth stars) and prizes in **Setup**.
+2. The kid checks off chores — stars accumulate and never reset.
+3. When he has enough stars (the "goal"), the wheel unlocks. A spin costs the goal, so he keeps earning for the next spin.
+4. A won prize is off the wheel for the rest of the week (back Sunday).
+5. The monthly goal tracks a bigger reward.
+
+## Requirements
+
+- Node.js 22+ (uses the built-in `node:sqlite`).
+- No npm dependencies.
+
+## Quick start
+
+```bash
+PORT=8080 DATA_DIR=./data node server.js
+# open http://localhost:8080
+```
+
+First run seeds the database from `seed.json` — only when the database is empty.
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `FAMILY_PASSWORD` | *(unset)* | Optional password gating the whole site. Leave unset only on a trusted LAN. |
+| `PORT` | `8080` | HTTP port. |
+| `DATA_DIR` | `./data` | Where the SQLite database lives. |
+| `TZ` | `America/New_York` | Container timezone (set in `docker-compose.yml`). |
+
+## Deploy (VPS)
 
 GitHub Actions builds `ghcr.io/slackerchris/chore-mission` (amd64 + arm64) on every push to `main`.
 
 ```bash
 mkdir chore-mission && cd chore-mission
-# grab docker-compose.yml and .env.example from this repo, then:
+# copy docker-compose.yml and .env.example from this repo, then:
 cp .env.example .env && nano .env          # set FAMILY_PASSWORD
 echo <PAT with read:packages> | docker login ghcr.io -u slackerchris --password-stdin   # only needed while the package is private
 docker compose pull && docker compose up -d
 ```
 
-Open `http://<host>:8080`. Change the left side of `8080:8080` in `docker-compose.yml` if the port is taken. For a proxy-only setup, bind it to `127.0.0.1:8080:8080` instead. Put it behind your reverse proxy for HTTPS (it reads `X-Forwarded-Proto` to mark the login cookie Secure).
+Open `http://<host>:8080`. For a proxy-only setup, bind `127.0.0.1:8080:8080` in `docker-compose.yml`.
 
-Updates: `docker compose pull && docker compose up -d`. The `data/` folder is untouched.
-
-First run seeds your current chores, prizes and goals from `seed.json`. History starts empty. The seed is only used when the database is empty.
-
-The container starts as root, makes the mounted `data/` folder writable by the app's `node` user, then drops privileges — so the first `docker compose up` works even though Docker creates `./data` as root.
+The container starts as root, makes the mounted `data/` folder writable by the app's `node` user, then drops privileges.
 
 ## HTTPS
 
-Put the app behind a reverse proxy that terminates TLS. Otherwise the family password travels in cleartext. The app reads `X-Forwarded-Proto` to mark the login cookie `Secure`.
+Run behind a reverse proxy that terminates TLS — otherwise the family password travels in cleartext. The app reads `X-Forwarded-Proto` to mark the login cookie `Secure`.
 
-Caddy:
+**Caddy**
 
 ```caddy
 chores.example.com {
@@ -34,7 +75,7 @@ chores.example.com {
 }
 ```
 
-nginx:
+**nginx**
 
 ```nginx
 server {
@@ -53,20 +94,19 @@ server {
 
 ## Family password
 
-`FAMILY_PASSWORD` gates the whole site. Each device logs in once and stays logged in for a year (HttpOnly cookie). Changing the password logs every device out. 10 wrong tries locks the login for 5 minutes. Leave it unset only on a trusted LAN.
+`FAMILY_PASSWORD` gates the whole site. Each device logs in once and stays logged in for a year (HttpOnly cookie). Changing the password logs every device out. 10 wrong tries locks the login for 5 minutes.
 
 ## First-time setup
 
-1. Log in with the family password, then open the **Setup** tab and create the parent PIN (4 to 8 digits).
-2. On his tablet: open the URL, then **Add to Home Screen**. It runs full-screen like an app.
+1. Log in with the family password, then open **Setup** and create the parent PIN (4–8 digits).
+2. On his tablet: open the URL, then **Add to Home Screen**.
 
-## How the lock works
+## The parent PIN
 
-- Chore check-offs and spins need only the family password, not the PIN.
-- Anything in Setup (chores, prizes, goals, name) requires the PIN. The server checks it with scrypt and hands out a 30-minute token, which the page throws away when you leave the tab or the screen turns off.
+- Chore check-offs, spins, and free-spin grants need only the family password.
+- Editing Setup (chores, prizes, goals, name) requires the PIN. The server checks it with scrypt and hands out a 30-minute token, discarded when the tab is left or the screen turns off.
 - 5 wrong PINs locks the PIN check for a minute.
-
-Lockouts and setup tokens live only in the running container, so restarting it clears them.
+- Lockouts and setup tokens live only in the running container, so restarting it clears them.
 
 Forgot the PIN:
 
@@ -77,19 +117,29 @@ docker exec chore-mission node server.js --reset-pin
 ## Data
 
 - Everything lives in `./data/chores.db` (SQLite, WAL mode).
-- Backup: copy the `data/` folder, or `sqlite3 data/chores.db ".backup chores-backup.db"`.
-- Peek at it: `sqlite3 data/chores.db "select col,id,data from docs"`.
+- Backup: copy `data/`, or `sqlite3 data/chores.db ".backup chores-backup.db"`.
+- Peek: `sqlite3 data/chores.db "select col,id,data from docs"`.
 
-## API (if you want to poke at it)
+## API
 
 | Method | Path | Notes |
-|---|---|---|
-| GET | `/api/col/{setup,days,spins}` | all docs in a collection |
+| --- | --- | --- |
+| GET | `/api/col/{setup,days,spins}` | All docs in a collection |
 | GET/PUT/PATCH/DELETE | `/api/doc/{col}/{id}` | `setup` writes need `Authorization: Bearer <token>` |
 | POST | `/api/pin` | `{"pin":"1234"}` creates the PIN if none, else returns a token |
-| GET | `/api/events` | server-sent events, pushes every change so all devices stay in sync |
-| GET | `/healthz` | container healthcheck |
+| GET | `/api/events` | Server-sent events; pushes every change to all devices |
+| GET | `/healthz` | Container healthcheck |
+| GET | `/version` | App version (plain text) |
+
+## Versioning & changelog
+
+The version lives in `VERSION`, is shown at the bottom of the page and at `/version`, and bumps the service-worker cache name so the PWA picks up new builds. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Updating
 
-Push to `main`, wait for the Action to finish, then on the VPS: `docker compose pull && docker compose up -d`.
+Push to `main`, wait for the Action to finish, then on the VPS:
+
+```bash
+docker compose pull && docker compose up -d
+```
+

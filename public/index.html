@@ -229,6 +229,7 @@ input[type=text],input[type=number]{font:inherit;color:var(--fg);background:var(
 .erow .mv button{padding:2px 8px;font-size:.7rem;line-height:1.2}
 .erow .mv button:disabled{opacity:.3;cursor:default}
 .note{color:var(--muted);font-size:.85rem;text-align:center;margin:0}
+.ver{color:var(--muted);font-size:.68rem;text-align:center;margin:4px 0 0;opacity:.65;letter-spacing:.04em}
 .cheer{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%) scale(.5);z-index:60;font-family:var(--display);font-weight:800;font-size:2.6rem;color:var(--go);text-shadow:0 4px 0 #8a2a5a,0 0 24px rgba(255,95,162,.6);opacity:0;pointer-events:none;white-space:nowrap}
 .cheer.show{animation:cheer 1.2s ease forwards}
 @keyframes cheer{0%{opacity:0;transform:translate(-50%,-50%) scale(.4) rotate(-8deg)}20%{opacity:1;transform:translate(-50%,-50%) scale(1.15) rotate(3deg)}35%{transform:translate(-50%,-50%) scale(1) rotate(0)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-80%) scale(1)}}
@@ -259,8 +260,8 @@ input[type=text],input[type=number]{font:inherit;color:var(--fg);background:var(
 
 
 <div class="pane" data-tab="today">
-  <section class="mission" aria-label="Weekly reward progress">
-    <div class="row"><span>This week's mission</span><span id="goalLbl">0 / 15 ★</span></div>
+  <section class="mission" aria-label="Prize progress">
+    <div class="row"><span>Stars</span><span id="goalLbl">0 / 15 ★</span></div>
     <div class="track">
       <div class="line"></div><div class="fill" id="fill"></div>
       <div class="rocket" id="rocket">🚀</div>
@@ -328,7 +329,7 @@ input[type=text],input[type=number]{font:inherit;color:var(--fg);background:var(
         <input type="number" id="mGoalIn" min="1" max="2000" aria-label="Stars needed this month">
       </div>
     </div>
-    <div class="field"><label class="lab" for="goal">Stars needed to unlock the wheel</label><input type="number" id="goal" min="1" max="200"></div>
+    <div class="field"><label class="lab" for="goal">Stars needed to spin the wheel</label><input type="number" id="goal" min="1" max="200"></div>
     <div class="field">
       <span class="lab">Prizes on the wheel</span>
       <div class="two">
@@ -337,7 +338,7 @@ input[type=text],input[type=number]{font:inherit;color:var(--fg);background:var(
       </div>
       <div class="chips emo" id="prizeIcon"></div>
       <div id="prizeList"></div>
-      <button class="ghost" id="resetSpin" type="button">Let him spin again this week</button>
+      <button class="ghost" id="freeSpinBtn" type="button">Give him a free spin</button>
     </div>
     <div class="field">
       <span class="lab" id="choreFormLbl">New chore</span>
@@ -351,8 +352,10 @@ input[type=text],input[type=number]{font:inherit;color:var(--fg);background:var(
     <div style="display:flex;gap:8px"><button class="primary" id="addBtn" type="button" style="flex:1">Add chore</button><button class="ghost" id="cancelEdit" type="button" hidden>Cancel</button></div>
     <div id="editList"></div>
   </section>
+  <p class="ver" id="setupVer">v__VERSION__</p>
 </div>
   <p class="note" id="note"></p>
+  <p class="ver" id="ver">v__VERSION__</p>
 </div>
 
 <nav class="tabbar" aria-label="Sections">
@@ -372,7 +375,7 @@ let sel=today(), cur=null;
 let config={name:'',goal:15,monthGoal:60,monthReward:'',prizes:[],chores:[]};
 let spinsAll={}, mSel=null;
 let days={};
-let spin=null, rotation=0, spinning=false, wheelSig='';
+let spinning=false, spinFree=false, wheelSig='';
 let tab=(['today','stats','setup'].includes(location.hash.slice(1))?location.hash.slice(1):'today');
 let setupOpen=false, pinStage=null;
 let db=null, editing=false, newDays=[0,1,2,3,4,5,6], newIcon='⭐', sound=true;
@@ -385,7 +388,24 @@ function weekStart(d){const s=new Date(d);s.setDate(s.getDate()-s.getDay());retu
 function choresFor(d){return config.chores.filter(c=>!c.days||c.days.includes(d.getDay()))}
 function doneFor(k){return (days[k]&&days[k].done)||{}}
 function starsFor(d){const done=doneFor(key(d));return choresFor(d).reduce((s,c)=>s+(done[c.id]?(c.pts||1):0),0)}
-function weekStars(){const ws=weekStart(today());let t=0;for(let i=0;i<7;i++){const d=new Date(ws);d.setDate(ws.getDate()+i);t+=starsFor(d)}return t}
+function totalStars(){let t=0;for(const k in days){const d=new Date(k+'T00:00:00');if(!isNaN(d.getTime()))t+=starsFor(d)}return t}
+function spentStars(){let t=0;for(const k in spinsAll){const s=spinsAll[k];if(s&&s.prize)t+=Number(s.cost)||0}return t}
+function freeSpins(){let n=0;for(const k in spinsAll){if(spinsAll[k]&&spinsAll[k].type==='free')n++}return n}
+function consumeFreeSpin(){
+  const k=Object.keys(spinsAll).find(x=>spinsAll[x]&&spinsAll[x].type==='free');
+  if(k==null)return;
+  const next={...spinsAll};delete next[k];spinsAll=next;
+  if(db){db.doc('spins/'+k).delete().catch(e=>readOnly(e))}
+  else local.set('chores.spins',spinsAll);
+}
+function prizeLocked(name){
+  let t=0;
+  for(const k in spinsAll){const s=spinsAll[k];if(s&&s.prize===name&&s.at){const ts=new Date(s.at).getTime();if(ts>t)t=ts}}
+  if(!t)return false;
+  const ns=weekStart(new Date(t));ns.setDate(ns.getDate()+7);
+  return Date.now()<Math.min(t+7*864e5,ns.getTime());
+}
+function availableStars(){return Math.max(0,totalStars()-spentStars())}
 
 function render(){
   const n=config.name.trim();
@@ -393,13 +413,13 @@ function render(){
   $('soundBtn').textContent=sound?'🔊':'🔇';$('soundBtn').setAttribute('aria-label',sound?'Sound on':'Sound off');
 
   // mission
-  const goal=Math.max(1,config.goal||15), ws=weekStars(), pct=Math.min(1,ws/goal);
+  const goal=Math.max(1,config.goal||15), ws=availableStars(), pct=Math.min(1,ws/goal);
   $('goalLbl').textContent=ws+' / '+goal+' ★';
   const tr=document.querySelector('.track'), w=tr.clientWidth-64;
   $('fill').style.width=(pct*w)+'px';$('rocket').style.left=(24+pct*w)+'px';
   $('planet').classList.toggle('won',pct>=1);$('planet').textContent=pct>=1?'🏆':'🪐';
   const r=$('rewardLbl');
-  if(pct>=1)r.textContent=spin?'Mission complete! Prize won this week.':'Mission complete! Spin the Prize Wheel!';
+  if(pct>=1)r.textContent='Mission complete! Spin the Prize Wheel!';
   else r.textContent=(goal-ws)+' more '+((goal-ws)===1?'star':'stars')+' to unlock the Prize Wheel';
   renderWheel(pct>=1);
 
@@ -480,7 +500,7 @@ function renderEdit(){
     x.onclick=()=>saveConfig({...config,prizes:config.prizes.filter((_,i)=>i!==idx)});
     r.append(e,t,x);pl.append(r)});
   if(!(config.prizes||[]).length){const d=document.createElement('p');d.className='note';d.textContent='No prizes yet. Add at least two.';pl.append(d)}
-  $('resetSpin').hidden=!spin;
+  $('freeSpinBtn').textContent='Give him a free spin'+(freeSpins()?' · '+freeSpins()+' waiting':'');
   const pi=$('prizeIcon');pi.innerHTML='';
   PICONS.forEach(e=>{const b=document.createElement('button');b.type='button';b.textContent=e;b.setAttribute('aria-pressed',e===newPrizeIcon);b.onclick=()=>{newPrizeIcon=e;renderEdit()};pi.append(b)});
   const ni=$('newIcon');ni.innerHTML='';
@@ -513,7 +533,7 @@ async function toggle(id,val){
 function readOnly(e){$('note').textContent=e&&e.code==='invalid_argument'?'Setup is locked. Open Setup and enter the PIN again.':'Could not save. Check that the server is reachable.'}
 
 function complete(c,btn){
-  const before=weekStars(), goal=Math.max(1,config.goal||15);
+  const before=availableStars(), goal=Math.max(1,config.goal||15);
   stopTimer(false);
   const rect=btn.getBoundingClientRect();
   burst(rect.left+rect.width/2,rect.top+rect.height/2,90);
@@ -522,7 +542,7 @@ function complete(c,btn){
   if(navigator.vibrate)try{navigator.vibrate(40)}catch(e){}
   cur=null;toggle(c.id,true);
   const list=choresFor(sel), done=doneFor(key(sel));
-  const after=weekStars();
+  const after=availableStars();
   if(before<goal&&after>=goal){setTimeout(()=>{bigParty();cheer('Wheel unlocked! 🎡');chime([523,659,784,1047,1319]);setTimeout(()=>document.querySelector('.wheelbox').scrollIntoView({behavior:reduce?'auto':'smooth',block:'center'}),900)},700)}
   else if(list.every(x=>done[x.id])){setTimeout(()=>{bigParty();cheer('All done today!');chime([784,988,1175,1568])},600)}
   else{$('nextCard').classList.add('wiggle')}
@@ -575,7 +595,10 @@ const weekKey=()=>key(weekStart(today()));
 const W=720,C=W/2,RW=330,RR=350;
 let wImg=null, ang=0, flap=0, flapV=0, lastSeg=-1, winIdx=-1, wState='idle', anim=null, frame=0, slices=[], bonus=0;
 function buildSlices(prizes){const out=[];const ps=prizes.map(P);
-  ps.forEach((p,i)=>{out.push({type:'prize',label:p.name,icon:p.icon,col:PCOL[i%PCOL.length]});const f=FILL[i%FILL.length];out.push({type:'again',label:f.label,sub:'SPIN AGAIN',icon:f.icon,col:FCOL[i%FCOL.length]})});
+  ps.forEach((p,i)=>{const f=FILL[i%FILL.length];
+    if(prizeLocked(p.name)){out.push({type:'again',label:'FREE SPIN',sub:'SPIN AGAIN',icon:'🎟️',col:FCOL[i%FCOL.length]})}
+    else{out.push({type:'prize',label:p.name,icon:p.icon,col:PCOL[i%PCOL.length]})}
+    out.push({type:'again',label:f.label,sub:'SPIN AGAIN',icon:f.icon,col:FCOL[i%FCOL.length]})});
   return out}
 function wrap2(g,text,maxW){const w=text.toUpperCase().split(/\s+/);if(w.length<2||g.measureText(text.toUpperCase()).width<=maxW)return[text.toUpperCase()];
   let best=null;for(let i=1;i<w.length;i++){const a=w.slice(0,i).join(' '),b=w.slice(i).join(' ');const m=Math.max(g.measureText(a).width,g.measureText(b).width);if(!best||m<best[0])best=[m,[a,b]]}return best[1]}
@@ -637,34 +660,40 @@ function loop(){
   if(wState!=='spinning')lastSeg=segUnder(ang);
   drawFrame();requestAnimationFrame(loop);
 }
-function spinsReady(unlocked){return (unlocked&&!spin?1:0)+bonus}
+function spinsReady(unlocked){return (unlocked?1:0)+freeSpins()+bonus}
 function renderWheel(unlocked){
-  const prizes=config.prizes||[],sig=JSON.stringify(prizes);
+  const prizes=config.prizes||[];
+  const ps=prizes.map(P), locked=ps.filter(p=>prizeLocked(p.name));
+  const active=ps.length-locked.length;
+  const sig=JSON.stringify(prizes)+'|'+locked.map(p=>p.name).sort().join('|');
   if(sig!==wheelSig){wheelSig=sig;buildWheel(prizes)}
-  if(!spinning&&wState!=='again'){
-    if(spin){wState='won';winIdx=slices.findIndex(x=>x.type==='prize'&&x.label===spin.prize);if(winIdx>=0&&!anim){const seg=Math.PI*2/segCount();ang=-(winIdx+.5)*seg}}
-    else wState=unlocked&&prizes.length>=2?'ready':(unlocked?'idle':'locked');
+  const ready=spinsReady(unlocked), can=ready>0&&active>0&&!spinning;
+  if(!spinning&&wState!=='again'&&wState!=='won'){
+    wState=can?'ready':(unlocked?'idle':'locked');
   }
-  const ready=spinsReady(unlocked), can=ready>0&&prizes.length>=2&&!spinning;
   const b=$('spinBtn');b.disabled=!can;
-  b.innerHTML=can?'<span>SPIN<small>TO</small>WIN</span>':(spinning?'<span class="lock">🤞</span>':(spin?'<span class="lock">🎁</span>':'<span class="lock">🔒</span>'));
-  const goal=Math.max(1,config.goal||15), ws=weekStars();
-  $('wStars').textContent='⭐ '+ws;$('wStarsLbl').textContent='of '+goal+' stars';
+  b.innerHTML=can?'<span>SPIN<small>TO</small>WIN</span>':(spinning?'<span class="lock">🤞</span>':'<span class="lock">🔒</span>');
+  const goal=Math.max(1,config.goal||15), av=availableStars();
+  $('wStars').textContent='⭐ '+av;$('wStarsLbl').textContent='of '+goal+' stars';
   $('wSpins').textContent='🔄 '+ready;
   const m=$('wheelMsg');m.innerHTML='';
   if(spinning){m.textContent='Here it goes...'}
   else if(wState==='again'){m.textContent='Spin again!'}
-  else if(spin){m.append('This week you won');const p=document.createElement('b');p.textContent=spin.prize;m.append(p);const s=document.createElement('div');s.textContent='New spin next week!';s.style.fontSize='.85rem';m.append(s)}
   else if(prizes.length<2){m.textContent='Grown-ups: add at least two prizes.'}
+  else if(active===0){m.textContent='All prizes won! New prizes Sunday.'}
   else if(unlocked){m.textContent='You did it! Tap SPIN TO WIN!'}
-  else{m.textContent=(goal-ws)+' more '+((goal-ws)===1?'star':'stars')+' to unlock a spin'}
+  else if(can){m.textContent='Free spin! Tap SPIN TO WIN!'}
+  else{m.textContent=(goal-av)+' more '+((goal-av)===1?'star':'stars')+' to unlock a spin'}
 }
 function click(){if(!sound)return;try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();const o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime;
   o.type='square';o.frequency.setValueAtTime(1500,t);o.frequency.exponentialRampToValueAtTime(600,t+.03);g.gain.setValueAtTime(.07,t);g.gain.exponentialRampToValueAtTime(.001,t+.05);o.connect(g).connect(ac.destination);o.start(t);o.stop(t+.06)}catch(e){}}
 function doSpin(){
   const prizes=config.prizes||[];if(spinning||prizes.length<2)return;
-  const unlocked=weekStars()>=Math.max(1,config.goal||15);if(spinsReady(unlocked)<1)return;
-  if(bonus>0)bonus--;
+  if(!prizes.some(p=>!prizeLocked(p.name)))return;
+  const unlocked=availableStars()>=Math.max(1,config.goal||15);if(spinsReady(unlocked)<1)return;
+  spinFree=false;
+  if(bonus>0){bonus--;spinFree=true}
+  else if(freeSpins()>0){consumeFreeSpin();spinFree=true}
   spinning=true;wState='spinning';winIdx=-1;chime([392,523]);
   const n=slices.length,i=Math.floor(Math.random()*n),seg=Math.PI*2/n,TAU=Math.PI*2;
   const jitter=(Math.random()-.5)*seg*.7;
@@ -684,23 +713,31 @@ async function finish(i){
   spinning=false;winIdx=i;const sl=slices[i];
   if(sl.type==='again'){
     wState='again';bonus++;cheer(sl.label.charAt(0)+sl.label.slice(1).toLowerCase()+'! Spin again!');chime([330,262]);render();
-    setTimeout(()=>{if(wState==='again'){wState='ready';render()}},1600);return}
+    setTimeout(()=>{if(wState==='again'){wState='idle';render()}},1600);return}
   wState='won';
-  spin={week:weekKey(),prize:sl.label,at:new Date().toISOString()};bonus=0;
+  const goal=Math.max(1,config.goal||15);
+  const rec={week:weekKey(),prize:sl.label,at:new Date().toISOString(),cost:spinFree?0:goal};
+  const sid='s'+Date.now().toString(36);
+  spinsAll={...spinsAll,[sid]:rec};bonus=0;spinFree=false;
   setTimeout(()=>{$('revealPrize').textContent=sl.label;$('revealGift').textContent='🎁';$('reveal').hidden=false;
     setTimeout(()=>{$('revealGift').textContent=sl.icon;bigParty();chime([523,659,784,1047,1319,1568])},1000)},700);
   render();
-  if(db){try{await db.doc('spins/'+spin.week).set(spin)}catch(e){readOnly(e)}}else local.set('chores.spin',spin);
-  spinsAll={...spinsAll,[spin.week]:spin};
+  if(db){try{await db.doc('spins/'+sid).set(rec)}catch(e){readOnly(e)}}
+  else local.set('chores.spins',spinsAll);
 }
-$('revealOk').onclick=()=>{$('reveal').hidden=true};
+$('revealOk').onclick=()=>{$('reveal').hidden=true;if(wState==='won'){wState='idle';winIdx=-1;render()}};
 requestAnimationFrame(loop);
 $('spinBtn').onclick=doSpin;
 $('addPrize').onclick=()=>{const v=$('newPrize').value.trim();if(!v)return $('newPrize').focus();
   saveConfig({...config,prizes:[...(config.prizes||[]),{name:v,icon:newPrizeIcon}]});$('newPrize').value='';$('newPrize').focus()};
 $('newPrize').addEventListener('keydown',e=>{if(e.key==='Enter')$('addPrize').click()});
-$('resetSpin').onclick=async()=>{const wk=weekKey();spin=null;wState='idle';winIdx=-1;render();
-  if(db){try{await db.doc('spins/'+wk).delete()}catch(e){readOnly(e)}}else local.set('chores.spin',null)};
+$('freeSpinBtn').onclick=()=>{
+  const id='free-'+Date.now().toString(36), rec={type:'free',at:new Date().toISOString()};
+  spinsAll={...spinsAll,[id]:rec};
+  if(db){db.doc('spins/'+id).set(rec).catch(e=>readOnly(e))}
+  else local.set('chores.spins',spinsAll);
+  render();
+};
 
 // mission log
 function dayInfo(d){const k=key(d);const sched=choresFor(d);const done=doneFor(k);
@@ -810,15 +847,14 @@ $('soundBtn').onclick=()=>{sound=!sound;local.set('chores.sound',sound);render()
 $('prev').onclick=()=>{sel=new Date(sel);sel.setDate(sel.getDate()-1);cur=null;stopTimer(false);render()};
 $('next').onclick=()=>{sel=new Date(sel);sel.setDate(sel.getDate()+1);cur=null;stopTimer(false);render()};
 
-config={...config,...(local.get('chores.config')||{})};days=local.get('chores.days')||{};
-{const ls=local.get('chores.spin');spin=ls&&ls.week===weekKey()?ls:null}
+config={...config,...(local.get('chores.config')||{})};days=local.get('chores.days')||{};spinsAll=local.get('chores.spins')||{};
 render();
 if(document.fonts)document.fonts.ready.then(()=>{wheelSig='';render()});
 (async()=>{
   try{db=await window.claude?.use?.('db')}catch(e){db=null}
   if(!db){$('note').textContent='Saving on this device only.';return}
   db.doc('setup/main').onSnapshot(s=>{if(s.exists){const d=s.data();config={pinHash:d.pinHash||'',name:d.name||'',goal:d.goal||15,monthGoal:d.monthGoal||60,monthReward:d.monthReward||'',prizes:d.prizes||[],chores:d.chores||[]};render()}},()=>{});
-  db.collection('spins').onSnapshot(s=>{const m={};s.docs.forEach(d=>{m[d.id]=d.data()});spinsAll=m;if(!spinning){spin=m[weekKey()]||null}render()},()=>{});
+  db.collection('spins').onSnapshot(s=>{const m={};s.docs.forEach(d=>{m[d.id]=d.data()});spinsAll=m;render()},()=>{});
   db.collection('days').onSnapshot(s=>{const m={};s.docs.forEach(d=>{m[d.id]=d.data()});days=m;render()},()=>{});
 })();
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});

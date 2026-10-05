@@ -9,6 +9,7 @@ const { DatabaseSync } = require('node:sqlite');
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const VERSION = (() => { try { return fs.readFileSync(path.join(__dirname, 'VERSION'), 'utf8').trim(); } catch (e) { return 'dev'; } })();
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const TOKEN_TTL_MS = 30 * 60 * 1000;
 const COLLECTIONS = new Set(['setup', 'days', 'spins']);
@@ -151,6 +152,8 @@ const server = http.createServer(async (req, res) => {
   try {
     if (p === '/healthz') return send(res, 200, 'ok');
 
+    if (p === '/version') return send(res, 200, VERSION);
+
     if (p === '/login') {
       if (!FAMILY_PASSWORD) { res.writeHead(302, { Location: '/' }); return res.end(); }
       if (req.method === 'POST') {
@@ -221,7 +224,11 @@ const server = http.createServer(async (req, res) => {
       const file = p === '/' ? 'index.html' : p.slice(1);
       const full = path.join(PUBLIC_DIR, path.normalize(file));
       if (!full.startsWith(PUBLIC_DIR + path.sep) || !fs.existsSync(full) || fs.statSync(full).isDirectory()) return send(res, 404, 'not found');
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(full)] || 'application/octet-stream', 'Cache-Control': (file === 'index.html' || file === 'sw.js') ? 'no-cache' : 'max-age=86400' });
+      const cc = (file === 'index.html' || file === 'sw.js') ? 'no-cache' : 'max-age=86400';
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(full)] || 'application/octet-stream', 'Cache-Control': cc });
+      if (file === 'index.html' || file === 'sw.js') {
+        return res.end(fs.readFileSync(full, 'utf8').replaceAll('__VERSION__', VERSION));
+      }
       return fs.createReadStream(full).pipe(res);
     }
     send(res, 404, 'not found');
