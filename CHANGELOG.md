@@ -5,6 +5,17 @@ All notable changes to Chore Mission are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-10-05
+
+### Changed
+- **Spins are now a persisted counter.** When Gabriel earns a full goal's worth of stars, those stars are subtracted and one spin is written to the database, instead of deriving the spin count from the star balance.
+- Pressing SPIN now consumes a spin immediately; "SPIN AGAIN" slices no longer refund the spin.
+- Moved the free-spin button to the top of Setup and made it prominent.
+- Star progress now caps at the goal instead of showing a total that exceeds it.
+
+### Fixed
+- Star balance can no longer display a negative number.
+
 ## [1.0.0] - 2026-10-05
 
 ### Changed
