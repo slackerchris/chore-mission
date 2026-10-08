@@ -376,7 +376,6 @@ let config={name:'',goal:15,monthGoal:60,monthReward:'',prizes:[],chores:[]};
 let spinsAll={}, mSel=null;
 let days={};
 let spinning=false, wheelSig='';
-let daysLoaded=false, spinsLoaded=false;
 let tab=(['today','stats','setup'].includes(location.hash.slice(1))?location.hash.slice(1):'today');
 let setupOpen=false, pinStage=null;
 let db=null, editing=false, newDays=[0,1,2,3,4,5,6], newIcon='⭐', sound=true;
@@ -389,40 +388,12 @@ function weekStart(d){const s=new Date(d);s.setDate(s.getDate()-s.getDay());retu
 function choresFor(d){return config.chores.filter(c=>!c.days||c.days.includes(d.getDay()))}
 function doneFor(k){return (days[k]&&days[k].done)||{}}
 function starsFor(d){const done=doneFor(key(d));return choresFor(d).reduce((s,c)=>s+(done[c.id]?(c.pts||1):0),0)}
-function totalStars(){let t=0;for(const k in days){const d=new Date(k+'T00:00:00');if(!isNaN(d.getTime()))t+=starsFor(d)}return t}
+// The server owns spins/_balance ({spins,spent,stars}) and recomputes it after every chore or setup change.
 function balance(){
   const b=spinsAll['_balance'];
-  if(b&&typeof b.spins==='number')return {spins:b.spins||0,spent:b.spent||0};
-  let spent=0;for(const k in spinsAll){const s=spinsAll[k];if(s&&s.prize)spent+=Number(s.cost)||0}
-  return {spins:0,spent};
-}
-function saveBalance(nb){
-  spinsAll={...spinsAll,_balance:nb};
-  if(db){db.doc('spins/_balance').set(nb).catch(e=>readOnly(e))}
-  else local.set('chores.spins',spinsAll);
+  return {spins:(b&&b.spins)||0,spent:(b&&b.spent)||0,stars:(b&&b.stars)||0};
 }
 function freeSpins(){let n=0;for(const k in spinsAll){if(spinsAll[k]&&spinsAll[k].type==='free')n++}return n}
-function takeFreeTicket(){
-  const k=Object.keys(spinsAll).find(x=>spinsAll[x]&&spinsAll[x].type==='free');
-  if(k==null)return false;
-  const next={...spinsAll};delete next[k];spinsAll=next;
-  if(db){db.doc('spins/'+k).delete().catch(e=>readOnly(e))}
-  else local.set('chores.spins',spinsAll);
-  return true;
-}
-function syncBalance(){
-  if(!daysLoaded||!spinsLoaded)return;
-  const goal=Math.max(1,config.goal||15);
-  const b=balance();
-  let spent=b.spent,spins=b.spins;
-  const total=totalStars();
-  while(spent>total&&spins>0){spent-=goal;spins--;}
-  if(spent<0)spent=0;
-  if(spent>total)spent=Math.floor(total/goal)*goal;
-  const conv=Math.floor((total-spent)/goal);
-  if(conv>0){spent+=conv*goal;spins+=conv;}
-  if(spent!==b.spent||spins!==b.spins)saveBalance({spins,spent});
-}
 function prizeLocked(name){
   let t=0;
   for(const k in spinsAll){const s=spinsAll[k];if(s&&s.prize===name&&s.at){const ts=new Date(s.at).getTime();if(ts>t)t=ts}}
@@ -430,7 +401,7 @@ function prizeLocked(name){
   const ns=weekStart(new Date(t));ns.setDate(ns.getDate()+7);
   return Date.now()<Math.min(t+7*864e5,ns.getTime());
 }
-function availableStars(){return Math.max(0,totalStars()-balance().spent)}
+function availableStars(){const b=balance();return Math.max(0,b.stars-b.spent)}
 
 function render(){
   const n=config.name.trim();
@@ -552,13 +523,12 @@ function renderEdit(){
 async function saveConfig(c){config=c;render();if(db){try{await db.doc('setup/main').set(c)}catch(e){readOnly(e)}}else local.set('chores.config',c)}
 async function toggle(id,val){
   const k=key(sel), done={...doneFor(k)};if(val)done[id]=true;else delete done[id];
-  days={...days,[k]:{date:k,done}};syncBalance();render();
+  days={...days,[k]:{date:k,done}};render();
   if(db){try{await db.doc('days/'+k).set({date:k,done})}catch(e){readOnly(e)}}else local.set('chores.days',days);
 }
 function readOnly(e){$('note').textContent=e&&e.code==='invalid_argument'?'Setup is locked. Open Setup and enter the PIN again.':'Could not save. Check that the server is reachable.'}
 
 function complete(c,btn){
-  const before=balance().spins;
   stopTimer(false);
   const rect=btn.getBoundingClientRect();
   burst(rect.left+rect.width/2,rect.top+rect.height/2,90);
@@ -567,9 +537,7 @@ function complete(c,btn){
   if(navigator.vibrate)try{navigator.vibrate(40)}catch(e){}
   cur=null;toggle(c.id,true);
   const list=choresFor(sel), done=doneFor(key(sel));
-  const after=balance().spins;
-  if(after>before){setTimeout(()=>{bigParty();cheer('Spin earned! 🎡');chime([523,659,784,1047,1319]);setTimeout(()=>document.querySelector('.wheelbox').scrollIntoView({behavior:reduce?'auto':'smooth',block:'center'}),900)},700)}
-  else if(list.every(x=>done[x.id])){setTimeout(()=>{bigParty();cheer('All done today!');chime([784,988,1175,1568])},600)}
+  if(list.every(x=>done[x.id])){setTimeout(()=>{bigParty();cheer('All done today!');chime([784,988,1175,1568])},600)}
   else{$('nextCard').classList.add('wiggle')}
 }
 
@@ -712,13 +680,14 @@ function renderWheel(unlocked){
 }
 function click(){if(!sound)return;try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();const o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime;
   o.type='square';o.frequency.setValueAtTime(1500,t);o.frequency.exponentialRampToValueAtTime(600,t+.03);g.gain.setValueAtTime(.07,t);g.gain.exponentialRampToValueAtTime(.001,t+.05);o.connect(g).connect(ac.destination);o.start(t);o.stop(t+.06)}catch(e){}}
-function doSpin(){
+async function doSpin(){
   const prizes=config.prizes||[];if(spinning||prizes.length<2)return;
   if(!prizes.some(p=>!prizeLocked(p.name)))return;
   if(spinsReady()<1)return;
-  if(freeSpins()>0){takeFreeTicket()}
-  else{const b=balance();saveBalance({spins:b.spins-1,spent:b.spent})}
-  spinning=true;wState='spinning';winIdx=-1;chime([392,523]);
+  spinning=true;render();
+  try{const r=await fetch('/api/spin',{method:'POST'});if(!r.ok)throw new Error('HTTP '+r.status)}
+  catch(e){spinning=false;$('note').textContent=String(e).includes('409')?'No spins left.':'Could not reach the server.';render();return}
+  wState='spinning';winIdx=-1;chime([392,523]);
   const n=slices.length,i=Math.floor(Math.random()*n),seg=Math.PI*2/n,TAU=Math.PI*2;
   const jitter=(Math.random()-.5)*seg*.7;
   const desired=((-(i+.5)*seg-jitter)%TAU+TAU)%TAU;
@@ -875,10 +844,14 @@ render();
 if(document.fonts)document.fonts.ready.then(()=>{wheelSig='';render()});
 (async()=>{
   try{db=await window.claude?.use?.('db')}catch(e){db=null}
-  if(!db){daysLoaded=true;spinsLoaded=true;syncBalance();$('note').textContent='Saving on this device only.';return}
+  if(!db){$('note').textContent='Saving on this device only.';return}
   db.doc('setup/main').onSnapshot(s=>{if(s.exists){const d=s.data();config={pinHash:d.pinHash||'',name:d.name||'',goal:d.goal||15,monthGoal:d.monthGoal||60,monthReward:d.monthReward||'',prizes:d.prizes||[],chores:d.chores||[]};render()}},()=>{});
-  db.collection('spins').onSnapshot(s=>{const m={};s.docs.forEach(d=>{m[d.id]=d.data()});spinsAll=m;spinsLoaded=true;syncBalance();render()},()=>{});
-  db.collection('days').onSnapshot(s=>{const m={};s.docs.forEach(d=>{m[d.id]=d.data()});days=m;daysLoaded=true;syncBalance();render()},()=>{});
+  let lastSpins=null;
+  db.collection('spins').onSnapshot(s=>{const m={};s.docs.forEach(d=>{m[d.id]=d.data()});spinsAll=m;
+    const n=balance().spins;
+    if(lastSpins!=null&&n>lastSpins){setTimeout(()=>{bigParty();cheer('Spin earned! 🎡');chime([523,659,784,1047,1319]);setTimeout(()=>document.querySelector('.wheelbox').scrollIntoView({behavior:reduce?'auto':'smooth',block:'center'}),900)},700)}
+    lastSpins=n;render()},()=>{});
+  db.collection('days').onSnapshot(s=>{const m={};s.docs.forEach(d=>{m[d.id]=d.data()});days=m;render()},()=>{});
 })();
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 </script>

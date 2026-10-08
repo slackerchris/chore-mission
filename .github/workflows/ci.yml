@@ -27,3 +27,4 @@ jobs:
           curl -fsS http://127.0.0.1:8080/healthz
           curl -fsS http://127.0.0.1:8080/ | grep -q "Chore Mission"
           curl -fsS http://127.0.0.1:8080/api/col/setup | grep -q '"id":"main"'
+          curl -fsS http://127.0.0.1:8080/api/balance | grep -q '"spins":'

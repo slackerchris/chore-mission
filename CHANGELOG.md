@@ -5,6 +5,18 @@ All notable changes to Chore Mission are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-10-07
+
+### Changed
+- **The server now owns the star and spin balance.** It recomputes `spins/_balance` (now `{spins, spent, stars}`) from `days` and `setup/main` after every chore or setup change, and the browser only displays it. Clients can no longer write `_balance` directly.
+- Spinning goes through the new `POST /api/spin` endpoint, which uses a free spin first, then an earned spin.
+
+### Added
+- `GET /api/balance` returns the current spins, stars spent, total stars, goal and available stars.
+
+### Fixed
+- Refreshing the page could reset or change the star balance. The browser sometimes computed 0 stars before the chore list had loaded and saved that result over the stored balance.
+
 ## [1.1.0] - 2026-10-05
 
 ### Changed

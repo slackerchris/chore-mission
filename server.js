@@ -117,6 +117,51 @@ function publicView(col, data) {
   return data;
 }
 
+// ---- star balance (server is the source of truth) ----
+// spins/_balance = { spins, spent, stars }: stars is the all-time total earned, spent is what
+// has been converted into spins. Recomputed from days + setup/main after every relevant write.
+function readDoc(col, id) { const r = q.get.get(col, id); return r ? JSON.parse(r.data) : null; }
+function totalStars(chores) {
+  let t = 0;
+  for (const r of q.list.all('days')) {
+    const dow = new Date(r.id + 'T00:00:00Z').getUTCDay(); if (isNaN(dow)) continue;
+    const done = JSON.parse(r.data).done || {};
+    for (const c of chores) if ((!c.days || c.days.includes(dow)) && done[c.id]) t += c.pts || 1;
+  }
+  return t;
+}
+function currentBalance() {
+  const b = readDoc('spins', '_balance');
+  if (b && typeof b.spins === 'number') return { spins: b.spins || 0, spent: b.spent || 0, stars: b.stars };
+  let spent = 0; // legacy: derive from prize records
+  for (const r of q.list.all('spins')) { const s = JSON.parse(r.data); if (s && s.prize) spent += Number(s.cost) || 0; }
+  return { spins: 0, spent, stars: undefined };
+}
+function reconcile() {
+  const setup = readDoc('setup', 'main'); if (!setup) return;
+  const goal = Math.max(1, setup.goal || 15), total = totalStars(setup.chores || []);
+  const b = currentBalance();
+  let { spent, spins } = b;
+  while (spent > total && spins > 0) { spent -= goal; spins--; } // chores un-checked: take back unused spins
+  if (spent < 0) spent = 0;
+  if (spent > total) spent = Math.floor(total / goal) * goal;
+  const conv = Math.floor((total - spent) / goal);
+  if (conv > 0) { spent += conv * goal; spins += conv; }
+  if (spent === b.spent && spins === b.spins && total === b.stars) return;
+  const next = { spins, spent, stars: total };
+  q.put.run('spins', '_balance', JSON.stringify(next)); broadcast('spins', '_balance', next);
+}
+function useSpin() {
+  for (const r of q.list.all('spins')) {
+    const s = JSON.parse(r.data);
+    if (s && s.type === 'free') { q.del.run('spins', r.id); broadcast('spins', r.id, null); return { ok: true, free: true }; }
+  }
+  const b = currentBalance(); if (b.spins < 1) return null;
+  const next = { spins: b.spins - 1, spent: b.spent, stars: b.stars };
+  q.put.run('spins', '_balance', JSON.stringify(next)); broadcast('spins', '_balance', next);
+  return { ok: true, free: false };
+}
+
 // ---- helpers ----
 function send(res, status, body, headers = {}) {
   const isObj = typeof body === 'object';
@@ -195,6 +240,17 @@ const server = http.createServer(async (req, res) => {
       return send(res, 403, { error: 'Wrong PIN.' });
     }
 
+    if (p === '/api/balance' && req.method === 'GET') {
+      const b = currentBalance(), setup = readDoc('setup', 'main') || {};
+      const goal = Math.max(1, setup.goal || 15);
+      return send(res, 200, { ...b, goal, available: Math.max(0, (b.stars ?? 0) - b.spent) });
+    }
+
+    if (p === '/api/spin' && req.method === 'POST') {
+      const r = useSpin();
+      return r ? send(res, 200, r) : send(res, 409, { error: 'No spins left.' });
+    }
+
     let m = /^\/api\/col\/([a-z]+)$/.exec(p);
     if (m && req.method === 'GET') {
       if (!COLLECTIONS.has(m[1])) return send(res, 404, { error: 'not found' });
@@ -208,15 +264,17 @@ const server = http.createServer(async (req, res) => {
       if (!COLLECTIONS.has(col) || !ID_RE.test(id)) return send(res, 404, { error: 'not found' });
       if (req.method === 'GET') { const r = q.get.get(col, id); return send(res, 200, r ? { exists: true, data: publicView(col, JSON.parse(r.data)) } : { exists: false }); }
       if (col === 'setup' && !validToken(req)) return send(res, 401, { error: 'Setup is locked.' });
+      if (col === 'spins' && id === '_balance') return send(res, 403, { error: 'The balance is managed by the server.' });
       if (req.method === 'PUT' || req.method === 'PATCH') {
         let body = await readBody(req);
         if (!body || typeof body !== 'object' || Array.isArray(body)) return send(res, 400, { error: 'body must be an object' });
         delete body.pinHash;
         if (req.method === 'PATCH') { const r = q.get.get(col, id); if (!r) return send(res, 404, { error: 'not found' }); body = deepMerge(JSON.parse(r.data), body); }
         q.put.run(col, id, JSON.stringify(body)); broadcast(col, id, body);
+        if (col !== 'spins') reconcile();
         return send(res, 200, { ok: true });
       }
-      if (req.method === 'DELETE') { q.del.run(col, id); broadcast(col, id, null); return send(res, 200, { ok: true }); }
+      if (req.method === 'DELETE') { q.del.run(col, id); broadcast(col, id, null); if (col !== 'spins') reconcile(); return send(res, 200, { ok: true }); }
       return send(res, 405, { error: 'method not allowed' });
     }
 
@@ -236,5 +294,6 @@ const server = http.createServer(async (req, res) => {
     console.error(e); if (!res.headersSent) send(res, 500, { error: 'server error' });
   }
 });
+reconcile();
 server.listen(PORT, () => console.log(`Chore Mission listening on :${PORT} (data in ${DATA_DIR})`));
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { server.close(); db.close(); process.exit(0); });
