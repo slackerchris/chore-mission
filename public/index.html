@@ -32,6 +32,13 @@
     const r=await fetch('/api/doc/'+col+'/'+encodeURIComponent(id),{method,headers:h,body:body?JSON.stringify(body):undefined});
     if(r.status===401||r.status===403)throw err('invalid_argument','locked');
     if(!r.ok)throw err('unavailable','HTTP '+r.status);
+    const j=await r.json().catch(()=>({}));if(j.balance)apply('spins','_balance',j.balance);
+  }
+  async function spin(){
+    const r=await fetch('/api/spin',{method:'POST'});
+    if(r.status===409)throw err('failed_precondition','No spins left.');
+    if(!r.ok)throw err('unavailable','HTTP '+r.status);
+    const j=await r.json();if(j.used)apply('spins',j.used,null);if(j.balance)apply('spins','_balance',j.balance);
   }
   // live updates from other devices
   function connect(){const es=new EventSource('/api/events');
@@ -51,7 +58,7 @@
     get:async()=>{await load(col);return snapCol(col,limit)},
     onSnapshot:(fn,onErr)=>{const s={col,fn,limit};colSubs.add(s);load(col).then(()=>fn(snapCol(col,limit))).catch(e=>onErr&&onErr(err('unavailable',String(e))));return()=>colSubs.delete(s)}
   }}
-  const dbApi={doc:docRef,collection:c=>colRef(c)};
+  const dbApi={doc:docRef,collection:c=>colRef(c),spin};
   window.claude={use:async name=>name==='db'?dbApi:null};
 })();
 </script>
@@ -197,6 +204,11 @@ body{padding-bottom:96px}
 .bub.cur{border-color:var(--sky);transform:scale(1.12)}
 .bub.on{border-color:var(--done);background:#1f4a45}
 .bub.on::after{content:"✓";position:absolute;right:-4px;bottom:-4px;width:22px;height:22px;border-radius:50%;background:var(--done);color:var(--bg);font-size:.8rem;font-weight:900;display:grid;place-items:center}
+.bub.ok::after{content:"✓";background:var(--go);color:var(--go-ink)}
+.tabbar .badge{position:absolute;top:-4px;right:-12px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--pink);color:#fff;font-size:.68rem;font-weight:900;line-height:18px;text-align:center;box-shadow:0 0 0 2px var(--bg)}
+.signoff{display:flex;flex-direction:column;gap:8px}
+.signoff .day{font-size:.75rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:6px 0 0}
+.signoff .erow button.yes{border-color:var(--done);color:var(--done)}
 .hint{color:var(--muted);font-size:.85rem;text-align:center;margin:0}
 
 /* week */
@@ -276,7 +288,7 @@ input[type=text],input[type=number]{font:inherit;color:var(--fg);background:var(
   </div>
   <section class="next" id="nextCard" aria-live="polite"></section>
   <div class="bubbles" id="bubbles"></div>
-  <p class="hint" id="hint">Tap a bubble to pick a different chore. Tap a checked one to undo.</p>
+  <p class="hint" id="hint">Tap a bubble to pick a different chore. Tap a checked one to undo. A gold check means a grown-up signed it off.</p>
   <section class="wheelbox" aria-label="Prize wheel">
     <h2>Prize Wheel</h2>
     <div class="wheel" id="wheelWrap">
@@ -321,6 +333,10 @@ input[type=text],input[type=number]{font:inherit;color:var(--fg);background:var(
 </section>
   <section class="edit" id="editPanel">
     <h2>Setup <span style="font-size:.8rem;color:var(--muted);font-family:var(--body)">(grown-ups)</span></h2>
+    <div class="field signoff">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="lab" id="signLbl">Sign off chores</span><button class="ghost" id="approveAll" type="button">Approve all</button></div>
+      <div id="signList"></div>
+    </div>
     <button class="primary" id="freeSpinBtn" type="button" style="width:100%">Give him a free spin</button>
     <div class="field"><label class="lab" for="kidName">Name</label><input type="text" id="kidName" placeholder="Your son's name"></div>
     <div class="field">
@@ -387,6 +403,19 @@ sound=local.get('chores.sound')!==false;
 function weekStart(d){const s=new Date(d);s.setDate(s.getDate()-s.getDay());return s}
 function choresFor(d){return config.chores.filter(c=>!c.days||c.days.includes(d.getDay()))}
 function doneFor(k){return (days[k]&&days[k].done)||{}}
+function okFor(k){return (days[k]&&days[k].ok)||{}}
+function dayDoc(k,done,ok){const d={date:k,done};if(Object.keys(ok).length)d.ok=ok;return d}
+// chores checked off (up to today) that a grown-up hasn't signed off yet, newest day first
+function pendingSignOff(){const out=[],t=key(today());
+  Object.keys(days).filter(k=>k<=t).sort().reverse().forEach(k=>{const d=new Date(k+'T00:00:00');if(isNaN(d.getTime()))return;
+    const done=doneFor(k),ok=okFor(k),cs=choresFor(d).filter(c=>done[c.id]&&!ok[c.id]);if(cs.length)out.push({k,d,cs})});
+  return out}
+async function signOff(k,ids,approve){
+  const done={...doneFor(k)},ok={...okFor(k)},at=new Date().toISOString();
+  ids.forEach(id=>{if(approve)ok[id]=at;else{delete done[id];delete ok[id]}});
+  const doc=dayDoc(k,done,ok);days={...days,[k]:doc};render();
+  if(db){try{await db.doc('days/'+k).set(doc)}catch(e){readOnly(e)}}else local.set('chores.days',days);
+}
 function starsFor(d){const done=doneFor(key(d));return choresFor(d).reduce((s,c)=>s+(done[c.id]?(c.pts||1):0),0)}
 // The server owns spins/_balance ({spins,spent,stars}) and recomputes it after every chore or setup change.
 function balance(){
@@ -453,9 +482,10 @@ function render(){
 
   // bubbles
   const bb=$('bubbles');bb.innerHTML='';
+  const okd=okFor(key(sel));
   list.forEach(c=>{const b=document.createElement('button');b.type='button';
-    b.className='bub'+(done[c.id]?' on':'')+(c.id===cur?' cur':'');b.textContent=c.icon||'⭐';
-    b.setAttribute('aria-label',c.name+(done[c.id]?', done. Tap to undo':''));
+    b.className='bub'+(done[c.id]?' on':'')+(okd[c.id]?' ok':'')+(c.id===cur?' cur':'');b.textContent=c.icon||'⭐';
+    b.setAttribute('aria-label',c.name+(okd[c.id]?', done and signed off':done[c.id]?', done. Tap to undo':''));
     b.onclick=()=>{if(done[c.id])toggle(c.id,false);else{cur=c.id;render()}};bb.append(b)});
   $('hint').hidden=list.length<2;
 
@@ -469,7 +499,10 @@ function render(){
     el.onclick=()=>{sel=d;cur=null;render()};wk.append(el)}
 
   editing=tab==='setup'&&setupOpen;
-  $('setupTab').querySelector('.ti').textContent=setupOpen?'⚙️':'🔒';
+  const ti=$('setupTab').querySelector('.ti');ti.textContent=setupOpen?'⚙️':'🔒';
+  const np=pendingSignOff().reduce((n,g)=>n+g.cs.length,0);
+  if(np){const bd=document.createElement('span');bd.className='badge';bd.textContent=np>99?'99+':np;ti.append(bd)}
+  $('setupTab').setAttribute('aria-label','Setup'+(np?', '+np+' chores to sign off':''));
   $('lockPane').hidden=editing;$('editPanel').hidden=!editing;
   if(tab==='setup'&&!setupOpen){const has=!!config.pinHash;
     $('lockTitle').textContent=has?'Grown-ups only':(pinStage?'Confirm your PIN':'Create a parent PIN');
@@ -496,6 +529,19 @@ function renderEdit(){
     x.onclick=()=>saveConfig({...config,prizes:config.prizes.filter((_,i)=>i!==idx)});
     r.append(e,t,x);pl.append(r)});
   if(!(config.prizes||[]).length){const d=document.createElement('p');d.className='note';d.textContent='No prizes yet. Add at least two.';pl.append(d)}
+  const pend=pendingSignOff(),sl=$('signList');sl.innerHTML='';
+  const np=pend.reduce((n,g)=>n+g.cs.length,0);
+  $('signLbl').textContent='Sign off chores'+(np?' · '+np:'');$('approveAll').hidden=!np;
+  if(!np){const p=document.createElement('p');p.className='note';p.style.textAlign='left';p.textContent='All caught up. Nothing waiting for sign-off.';sl.append(p)}
+  pend.forEach(g=>{const h=document.createElement('p');h.className='day';
+    const diff=Math.round((g.d-today())/864e5);
+    h.textContent=diff===0?'Today':diff===-1?'Yesterday':g.d.toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'});sl.append(h);
+    g.cs.forEach(c=>{const r=document.createElement('div');r.className='erow';
+      const e=document.createElement('span');e.className='e';e.textContent=c.icon||'⭐';
+      const t=document.createElement('div');t.className='n';t.textContent=c.name+'  +'+(c.pts||1)+'★';
+      const y=document.createElement('button');y.type='button';y.className='yes';y.textContent='Approve';y.setAttribute('aria-label','Approve '+c.name);y.onclick=()=>signOff(g.k,[c.id],true);
+      const n=document.createElement('button');n.type='button';n.textContent='Not done';n.setAttribute('aria-label',c.name+' was not done');n.onclick=()=>signOff(g.k,[c.id],false);
+      r.append(e,t,y,n);sl.append(r)})});
   $('freeSpinBtn').textContent='Give him a free spin'+(freeSpins()?' · '+freeSpins()+' waiting':'');
   const pi=$('prizeIcon');pi.innerHTML='';
   PICONS.forEach(e=>{const b=document.createElement('button');b.type='button';b.textContent=e;b.setAttribute('aria-pressed',e===newPrizeIcon);b.onclick=()=>{newPrizeIcon=e;renderEdit()};pi.append(b)});
@@ -522,9 +568,10 @@ function renderEdit(){
 
 async function saveConfig(c){config=c;render();if(db){try{await db.doc('setup/main').set(c)}catch(e){readOnly(e)}}else local.set('chores.config',c)}
 async function toggle(id,val){
-  const k=key(sel), done={...doneFor(k)};if(val)done[id]=true;else delete done[id];
-  days={...days,[k]:{date:k,done}};render();
-  if(db){try{await db.doc('days/'+k).set({date:k,done})}catch(e){readOnly(e)}}else local.set('chores.days',days);
+  const k=key(sel), done={...doneFor(k)}, ok=okFor(k);if(!val&&ok[id])return;
+  if(val)done[id]=true;else delete done[id];
+  const doc=dayDoc(k,done,ok);days={...days,[k]:doc};render();
+  if(db){try{await db.doc('days/'+k).set(doc)}catch(e){readOnly(e)}}else local.set('chores.days',days);
 }
 function readOnly(e){$('note').textContent=e&&e.code==='invalid_argument'?'Setup is locked. Open Setup and enter the PIN again.':'Could not save. Check that the server is reachable.'}
 
@@ -685,8 +732,8 @@ async function doSpin(){
   if(!prizes.some(p=>!prizeLocked(p.name)))return;
   if(spinsReady()<1)return;
   spinning=true;render();
-  try{const r=await fetch('/api/spin',{method:'POST'});if(!r.ok)throw new Error('HTTP '+r.status)}
-  catch(e){spinning=false;$('note').textContent=String(e).includes('409')?'No spins left.':'Could not reach the server.';render();return}
+  try{await db.spin()}
+  catch(e){spinning=false;$('note').textContent=e.code==='failed_precondition'?'No spins left.':'Could not reach the server.';render();return}
   wState='spinning';winIdx=-1;chime([392,523]);
   const n=slices.length,i=Math.floor(Math.random()*n),seg=Math.PI*2/n,TAU=Math.PI*2;
   const jitter=(Math.random()-.5)*seg*.7;
@@ -723,6 +770,7 @@ $('spinBtn').onclick=doSpin;
 $('addPrize').onclick=()=>{const v=$('newPrize').value.trim();if(!v)return $('newPrize').focus();
   saveConfig({...config,prizes:[...(config.prizes||[]),{name:v,icon:newPrizeIcon}]});$('newPrize').value='';$('newPrize').focus()};
 $('newPrize').addEventListener('keydown',e=>{if(e.key==='Enter')$('addPrize').click()});
+$('approveAll').onclick=()=>{pendingSignOff().forEach(g=>signOff(g.k,g.cs.map(c=>c.id),true))};
 $('freeSpinBtn').onclick=()=>{
   const id='free-'+Date.now().toString(36), rec={type:'free',at:new Date().toISOString()};
   spinsAll={...spinsAll,[id]:rec};

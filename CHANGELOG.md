@@ -5,6 +5,15 @@ All notable changes to Chore Mission are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-10-08
+
+### Added
+- **Parent sign-off.** Setup now opens with a "Sign off chores" list of everything Gabriel has checked off, grouped by day, with Approve, Not done, and Approve all. Stars still count as soon as he checks a chore; "Not done" un-checks it and takes the stars back. The Setup tab shows a badge with the number waiting, and signed-off chores get a gold check on the Today screen.
+- Sign-offs are stored per day (`days/<date>.ok`) and can only be changed with the parent PIN. Without it, the server keeps existing sign-offs, and signed-off chores can't be un-checked.
+
+### Fixed
+- The spin count on screen didn't go down after a spin (and stars didn't update after checking off a chore) when the live-update stream was delayed or blocked, for example by a proxy. The server now returns the updated balance with every spin and every save, and the app applies it immediately.
+
 ## [1.2.0] - 2026-10-07
 
 ### Changed

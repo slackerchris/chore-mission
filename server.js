@@ -151,15 +151,23 @@ function reconcile() {
   const next = { spins, spent, stars: total };
   q.put.run('spins', '_balance', JSON.stringify(next)); broadcast('spins', '_balance', next);
 }
+// Sign-offs (days/<date>.ok = { choreId: ISO time }) can only be changed with the parent PIN.
+// Without it, keep the stored sign-offs and keep those chores checked.
+function keepSignOffs(prev, body) {
+  const ok = (prev && prev.ok) || {};
+  const out = { ...body, done: { ...(body.done || {}) } };
+  if (Object.keys(ok).length) { out.ok = ok; for (const k of Object.keys(ok)) out.done[k] = true; } else delete out.ok;
+  return out;
+}
 function useSpin() {
   for (const r of q.list.all('spins')) {
     const s = JSON.parse(r.data);
-    if (s && s.type === 'free') { q.del.run('spins', r.id); broadcast('spins', r.id, null); return { ok: true, free: true }; }
+    if (s && s.type === 'free') { q.del.run('spins', r.id); broadcast('spins', r.id, null); return { ok: true, free: true, used: r.id, balance: currentBalance() }; }
   }
   const b = currentBalance(); if (b.spins < 1) return null;
   const next = { spins: b.spins - 1, spent: b.spent, stars: b.stars };
   q.put.run('spins', '_balance', JSON.stringify(next)); broadcast('spins', '_balance', next);
-  return { ok: true, free: false };
+  return { ok: true, free: false, balance: next };
 }
 
 // ---- helpers ----
@@ -270,11 +278,16 @@ const server = http.createServer(async (req, res) => {
         if (!body || typeof body !== 'object' || Array.isArray(body)) return send(res, 400, { error: 'body must be an object' });
         delete body.pinHash;
         if (req.method === 'PATCH') { const r = q.get.get(col, id); if (!r) return send(res, 404, { error: 'not found' }); body = deepMerge(JSON.parse(r.data), body); }
+        if (col === 'days' && !validToken(req)) {
+          if (req.headers.authorization) return send(res, 401, { error: 'Setup is locked.' }); // expired PIN token
+          body = keepSignOffs(readDoc(col, id), body);
+        }
         q.put.run(col, id, JSON.stringify(body)); broadcast(col, id, body);
         if (col !== 'spins') reconcile();
-        return send(res, 200, { ok: true });
+        return send(res, 200, { ok: true, balance: currentBalance() });
       }
-      if (req.method === 'DELETE') { q.del.run(col, id); broadcast(col, id, null); if (col !== 'spins') reconcile(); return send(res, 200, { ok: true }); }
+      if (req.method === 'DELETE' && col === 'days' && !validToken(req) && Object.keys(readDoc(col, id)?.ok || {}).length) return send(res, 401, { error: 'Setup is locked.' });
+      if (req.method === 'DELETE') { q.del.run(col, id); broadcast(col, id, null); if (col !== 'spins') reconcile(); return send(res, 200, { ok: true, balance: currentBalance() }); }
       return send(res, 405, { error: 'method not allowed' });
     }
 
